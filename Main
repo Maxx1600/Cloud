@@ -1,0 +1,174 @@
+'use client'
+
+import { useState, useRef, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Cloud, Upload, Download, Copy, Check, File, Trash2 } from 'lucide-react'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { toast } from "@/components/ui/use-toast"
+import { Progress } from "@/components/ui/progress"
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+interface StoredFile {
+  name: string;
+  data: string;
+  type: string;
+  size: number;
+}
+
+export default function Component() {
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [storedFiles, setStoredFiles] = useState<StoredFile[]>([])
+  const [copying, setCopying] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const savedFiles = localStorage.getItem('storedFiles')
+    if (savedFiles) {
+      setStoredFiles(JSON.parse(savedFiles))
+    }
+  }, [])
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      if (file.size > MAX_FILE_SIZE) {
+        toast({
+          title: "Datei zu groß",
+          description: "Die maximale Dateigröße beträgt 5 MB.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      setUploadedFile(file)
+      setUploadProgress(0)
+      
+      const reader = new FileReader()
+      reader.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = (event.loaded / event.total) * 100
+          setUploadProgress(progress)
+        }
+      }
+      reader.onload = (e) => {
+        const result = e.target?.result as string
+        const newFile: StoredFile = {
+          name: file.name,
+          data: result.split(',')[1], // Remove data URL prefix
+          type: file.type,
+          size: file.size
+        }
+        const updatedFiles = [...storedFiles, newFile]
+        setStoredFiles(updatedFiles)
+        localStorage.setItem('storedFiles', JSON.stringify(updatedFiles))
+        setUploadProgress(100)
+        toast({
+          title: "Upload erfolgreich!",
+          description: "Ihre Datei wurde im Browser-Speicher gespeichert.",
+        })
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const openFileSelector = () => {
+    fileInputRef.current?.click()
+  }
+
+  const copyToClipboard = (fileName: string) => {
+    const fileLink = `${window.location.origin}/file/${encodeURIComponent(fileName)}`
+    navigator.clipboard.writeText(fileLink)
+    setCopying(true)
+    toast({
+      title: "Link kopiert!",
+      description: "Der Datei-Link wurde in die Zwischenablage kopiert.",
+    })
+    setTimeout(() => setCopying(false), 2000)
+  }
+
+  const deleteFile = (fileName: string) => {
+    const updatedFiles = storedFiles.filter(file => file.name !== fileName)
+    setStoredFiles(updatedFiles)
+    localStorage.setItem('storedFiles', JSON.stringify(updatedFiles))
+    toast({
+      title: "Datei gelöscht",
+      description: `${fileName} wurde aus dem Speicher entfernt.`,
+    })
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-blue-100 to-white flex flex-col items-center justify-center p-4">
+      <motion.div
+        className="text-6xl mb-8 text-blue-500"
+        animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }}
+        transition={{ duration: 2, repeat: Infinity, repeatType: "reverse" }}
+      >
+        <Cloud />
+      </motion.div>
+      
+      <div className="w-full max-w-md">
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          className="hidden"
+        />
+        
+        <Button 
+          onClick={openFileSelector} 
+          className="w-full mb-4 py-8 text-lg"
+          variant="outline"
+        >
+          <File className="mr-2 h-6 w-6" />
+          Datei auswählen (max. 5 MB)
+        </Button>
+
+        <AnimatePresence>
+          {uploadedFile && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="mb-4 p-4 bg-white rounded-lg shadow-md"
+            >
+              <p className="text-blue-600 font-semibold text-center">{uploadedFile.name}</p>
+              <Upload className="mx-auto mt-2 text-blue-500" />
+              <Progress value={uploadProgress} className="mt-2" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {storedFiles.map((file) => (
+            <motion.div
+              key={file.name}
+              className="p-4 bg-white rounded-lg shadow-md mb-4"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <p className="font-semibold mb-2">{file.name}</p>
+              <div className="flex items-center space-x-2 mb-2">
+                <Input value={`${window.location.origin}/file/${encodeURIComponent(file.name)}`} readOnly className="flex-grow text-xs" />
+                <Button onClick={() => copyToClipboard(file.name)} variant="outline" size="icon">
+                  {copying ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <div className="flex space-x-2">
+                <Button className="flex-grow" variant="default" as="a" href={`data:${file.type};base64,${file.data}`} download={file.name}>
+                  <Download className="mr-2 h-4 w-4" /> Herunterladen
+                </Button>
+                <Button onClick={() => deleteFile(file.name)} variant="destructive" size="icon">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
